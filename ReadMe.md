@@ -27,8 +27,8 @@ Pour exécuter le FastAPI, deux possibilités :
    3. Charger les librairies :
 
     ```bash
-       petry install
-       ```
+    poetry install
+    ```
 
    4. lancer fastAPI :
 
