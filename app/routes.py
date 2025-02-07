@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Query, HTTPException, UploadFile, File, status
+from fastapi.responses import FileResponse
+
 from app.services import (
     process_news,  
     process_clustering, 
@@ -230,3 +232,19 @@ def assignment():
 @router.post("/process/alert_generation", summary="Génération d'alertes", description="Génère des alertes en fonction de la proportion de tweets assignés par jour.")
 def generation():
     return alert_generation()
+
+@router.get("/images/cluster", summary="Affiche le graphique des mots les plus important de cluster qui détècte notre événement (Trump election)")
+def get_cluster_image():
+    image_path = os.path.join("graphs", "cluster_1_top_terms.png")
+    if os.path.exists(image_path):
+        return FileResponse(image_path, media_type="image/png")
+    else:
+        return {"error": "Image non trouvée"}
+
+@router.get("/images/alert", summary="Affiche le graphique de Alert Generation")
+def get_cluster_image():
+    image_path = os.path.join("graphs", "alert_generation.png")
+    if os.path.exists(image_path):
+        return FileResponse(image_path, media_type="image/png")
+    else:
+        return {"error": "Image non trouvée"}
