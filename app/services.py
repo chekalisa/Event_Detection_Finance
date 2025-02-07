@@ -1,29 +1,37 @@
+
+######################################################################
+#                 Imports et création des répertoires                #
+######################################################################
+
+
 from fastapi import HTTPException, Query
 import pandas as pd
 import numpy as np
 import nltk
-import re
-import os
-import shutil
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
+import os
+import shutil
+import re
 from gensim.models import Word2Vec
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfTransformer
+from scipy.spatial.distance import cosine
 import matplotlib
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
-from sklearn.metrics import silhouette_score
-from sklearn.cluster import AgglomerativeClustering
-from scipy.spatial.distance import cosine
-from sklearn.feature_extraction.text import TfidfTransformer
 import matplotlib.dates as mdates
-from sklearn.metrics.pairwise import cosine_similarity
 
-# Download NLTK resources
+
+# Les ressources NLTK 
 nltk.download('punkt_tab')
 nltk.download('stopwords')
 nltk.download('wordnet')
 nltk.download('punkt')
+
 
 
 PROCESSED_DIR_NEWS = "processed_data_news"
@@ -35,8 +43,16 @@ os.makedirs(PROCESSED_DIR_TWEETS, exist_ok=True)
 GRAPHS = "graphs"
 os.makedirs(GRAPHS, exist_ok=True)
 
+
+######################################################################
+#                               Articles                             #
+######################################################################
+
+
 def preprocess_message_news(message):
-    """Cleans and tokenizes a news article."""
+
+    """Nettoie et tokenise les articles de presse."""
+
     if not isinstance(message, str):
         return []
     
@@ -51,37 +67,23 @@ def preprocess_message_news(message):
     
     return cleaned_tokens
 
-def preprocess_message_tweets(message):
-        """Cleans and tokenizes a tweet."""
-        if not isinstance(message, str): 
-            return []
-
-        stop_words = set(stopwords.words('english'))
-        lemmatizer = WordNetLemmatizer() 
-
-        message = message.lower()
-        message = re.sub(r'\d+', '', message)
-        
-        tokens = word_tokenize(message)
-        filtered_tokens = [word for word in tokens if word.isalnum() and word not in stop_words]
-        
-        lemmatized_tokens = [lemmatizer.lemmatize(word) for word in filtered_tokens]
-        
-        cleaned_tokens = [token for token in lemmatized_tokens if len(token) > 2 and 'btc' not in token and 'bitcoin' not in token]
-        cleaned_tokens = [token for token in cleaned_tokens if not re.search(r'(.)\1{2,}', token)]
-        
-        return cleaned_tokens if cleaned_tokens else None  
-
 
 
 def perform_clustering(data, k, linkage_criterion, metric):
-    """Clusterisation des tweets."""
+
+    """Crée des clusters en utilisant AgglomerativeClustering."""
+
     clustering = AgglomerativeClustering(n_clusters=k, metric=metric, linkage=linkage_criterion)
     clusters = clustering.fit_predict(data)
     return clusters
 
 
+
 def process_news():
+    """
+    Nettoie, tokenise et filtre les articles, intègre les variations Bitcoin, 
+    et génère des fichiers optimisés.
+    """
     print("INFO: Début du processus de traitement.")
 
     news_file = os.path.join('uploaded_data', "news.xlsx")
@@ -89,14 +91,14 @@ def process_news():
 
     if not os.path.exists(news_file) or not os.path.exists(bitcoin_file):
         print("INFO: Fichiers requis non trouvés.")
-        raise HTTPException(status_code=400, detail="Both news or Bitcoin files must be uploaded first.")
+        raise HTTPException(status_code=400, detail="Les fichiers des articles et du Bitcoin doivent être ajoutés en premier.")
     
     print("INFO: Chargement des fichiers en cours...")
     news_df = pd.read_excel(news_file)
     
     required_columns = {'Date', 'Titre', 'Article'}
     if not required_columns.issubset(news_df.columns):
-        raise HTTPException(status_code=400, detail=f"File must contain {required_columns}")
+        raise HTTPException(status_code=400, detail=f"Le fichier doit contenir {required_columns}")
 
     print("INFO: Prétraitement des articles de presse...")
     news_df['Date'] = pd.to_datetime(news_df['Date']).dt.date
@@ -126,10 +128,8 @@ def process_news():
     token_columns = matrix_news.columns.difference(['Date', 'Titre'])
     total_articles = len(matrix_news)
 
-    # Calculer la fréquence des tokens (nombre de `1` dans chaque colonne)
     token_frequencies = matrix_news[token_columns].sum(axis=0)
 
-    # Identifier les tokens à supprimer
     tokens_to_remove = token_frequencies[
         (token_frequencies > 0.75 * total_articles) | (token_frequencies < 0.2 * total_articles)
     ].index.tolist()
@@ -199,14 +199,23 @@ def process_news():
 
     return {"message": "Processing complete", "output_files": [matrix_news_path, filtred_matrix_news_path, filtred_matrix_news_path_variation, selected_tokens_path, filtered_matrix_news_path_by_tokens]}
 
+
+
+
 def process_vectorization():
+
+    """
+    Vectorise les articles en utilisant Word2Vec, génère des représentations numériques 
+    et sauvegarde les vecteurs ainsi que le modèle entraîné.
+    """
+
     print("INFO: Début de la vectorisation des articles.")
 
 
     filtered_matrix_path = os.path.join(PROCESSED_DIR_NEWS, "matrix_news_filtered_by_tokens.csv")
     if not os.path.exists(filtered_matrix_path):
         print("ERROR: Fichier filtré introuvable.")
-        raise HTTPException(status_code=400, detail="Filtered matrix file not found.")
+        raise HTTPException(status_code=400, detail="Le fichier de matrice filtrée est introuvable.")
 
     print("INFO: Chargement de la matrice des tokens sélectionnés...")
     filtered_matrix_news = pd.read_csv(filtered_matrix_path)
@@ -214,21 +223,19 @@ def process_vectorization():
 
     if filtered_matrix_news.empty:
         print("ERROR: Le fichier chargé est vide.")
-        raise HTTPException(status_code=400, detail="Filtered matrix file is empty.")
-
-    # Préparation des données pour Word2Vec
+        raise HTTPException(status_code=400, detail="La matrice filtrée est vide.")
+    
     print("INFO: Préparation des données pour Word2Vec...")
     sentences = []
     for _, row in filtered_matrix_news.iterrows():
         article_tokens = row[2:].index[row[2:] == 1].tolist()
         sentences.append(article_tokens)
 
-    # Vérifier s'il y a des tokens valides
     if not sentences or all(len(sentence) == 0 for sentence in sentences):
         print("ERROR: Aucune donnée valide pour entraîner Word2Vec.")
-        raise HTTPException(status_code=400, detail="No valid data for Word2Vec training.")
+        raise HTTPException(status_code=400, detail="Aucune donnée valide pour entraîner le modèle Word2Vec.")
 
-    # Entraîner et sauvgarder le modèle 
+
     print("INFO: Entraînement du modèle Word2Vec...")
     model = Word2Vec(sentences, vector_size=200, window=5, min_count=1, workers=4)
 
@@ -236,8 +243,16 @@ def process_vectorization():
     model.save(model_path)
     print(f"INFO: Modèle Word2Vec sauvegardé à {model_path}")
 
-    # Calculer les vecteurs moyens par article
+
+
+    
     def get_article_vector(article_tokens):
+
+        """
+        Calcule le vecteur moyen d'un article en agrégeant les vecteurs Word2Vec de ses tokens.
+        Retourne un vecteur nul si aucun token valide n'est trouvé.
+        """
+
         vectors = [model.wv[token] for token in article_tokens if token in model.wv]
         return np.mean(vectors, axis=0) if len(vectors) > 0 else np.zeros(model.vector_size)
 
@@ -258,12 +273,21 @@ def process_vectorization():
 
     print(f"INFO: vectorization terminée")
     return {
-        "message": "Vectorization complete",
+        "message": "Vectorisation complète",
         "output_files": [output_file, model_path]
     }
 
+
+
+
 def process_silhouette():
-    print("INFO: Début du calcule des scores de silouhette.")
+
+    """
+    Calcule et analyse les scores de silhouette pour déterminer le nombre optimal de clusters.
+    Génère un graphique des scores et le sauvegarde.
+    """
+
+    print("INFO: Début du calcul des scores de silouhette.")
 
     vectors_path = os.path.join(PROCESSED_DIR_NEWS, "article_vectors.csv")
 
@@ -271,18 +295,15 @@ def process_silhouette():
 
     article_vectors_df = pd.read_csv(vectors_path)
 
-    # 📌 Extraction des vecteurs (exclure Date et Titre)
     article_vectors_only = article_vectors_df.iloc[:, :-2].values 
 
-    # Extraire uniquement les colonnes des vecteurs
     article_vectors_only = article_vectors_df.iloc[:, :-2].values  
 
-    # Méthode de silhouette
     range_n_clusters = range(2, 11)
     silhouette_scores = []
 
     for n_clusters in range_n_clusters:
-        agglo_clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')#métrique euclidean par défaut 
+        agglo_clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
         cluster_labels = agglo_clustering.fit_predict(article_vectors_only)  
         silhouette_avg = silhouette_score(article_vectors_only, cluster_labels)  
         silhouette_scores.append(silhouette_avg)
@@ -308,7 +329,14 @@ def process_silhouette():
     }
 
 
+
+
 def process_clustering(k: int = Query(3, description="Nombre de clusters")):
+
+    """
+    Effectue un clustering hiérarchique des articles, ajuste les petits clusters, 
+    et génère les fichiers des résultats et des centroïdes.
+    """
 
     vectors_path = os.path.join(PROCESSED_DIR_NEWS, "article_vectors.csv")
 
@@ -316,11 +344,10 @@ def process_clustering(k: int = Query(3, description="Nombre de clusters")):
 
     if not os.path.exists(vectors_path) :
         print("INFO: Fichiers requis non trouvés.")
-        raise HTTPException(status_code=400, detail="Vectors file must be uploaded first.")
+        raise HTTPException(status_code=400, detail="Les fichiers des vecteurs doivent être chargés en premier.")
     
     article_vectors_df = pd.read_csv(vectors_path)
 
-    # Identifier les colonnes numériques uniquement
     vector_columns = article_vectors_df.select_dtypes(include=[np.number]).columns
     article_vectors_only = article_vectors_df[vector_columns]
 
@@ -329,23 +356,20 @@ def process_clustering(k: int = Query(3, description="Nombre de clusters")):
     linkage_criterion = 'ward' 
     metric = 'euclidean'  
     
-    # Effectuer le clustering
     article_vectors_df['Cluster'] = perform_clustering(article_vectors_only, k, linkage_criterion, metric)
     
-    # Vérifier la taille des clusters
     cluster_sizes = article_vectors_df['Cluster'].value_counts()
     print(f"Taille des clusters initiaux :\n{cluster_sizes}")
 
-    # Supprimer les petits clusters et relancer le clustering, pur gérer les clusters qui sont très petits, par exemple cluster à 1 ou 2 articles
+    # Supprimer les petits clusters et relancer le clustering, pour gérer les clusters qui sont très petits, par exemple cluster à 1 ou 2 articles
     min_cluster_size = 5
     while (cluster_sizes < min_cluster_size).any():
         small_clusters = cluster_sizes[cluster_sizes < min_cluster_size].index
         print(f"Clusters trop petits (< {min_cluster_size}) : {small_clusters}")
-        # Supprimer les articles des petits clusters
+       
         article_vectors_df = article_vectors_df[~article_vectors_df['Cluster'].isin(small_clusters)]
         article_vectors_only = article_vectors_df[vector_columns]
         
-        # Relancer le clustering sur les articles restants
         if len(article_vectors_df) < k:
             print("Nombre insuffisant d'articles pour relancer le clustering avec le même nombre de clusters. Fin de la boucle.")
             break
@@ -353,7 +377,6 @@ def process_clustering(k: int = Query(3, description="Nombre de clusters")):
         cluster_sizes = article_vectors_df['Cluster'].value_counts()
         print(f"Taille des clusters après filtrage :\n{cluster_sizes}")
 
-    # Calculer les centroides
     print("INFO: Calcul des centroides (médiane par cluster)...")
     centroids = []
     for cluster in sorted(article_vectors_df['Cluster'].unique()):
@@ -385,7 +408,14 @@ def process_clustering(k: int = Query(3, description="Nombre de clusters")):
 
 
 
+
 def process_outliers(threshold: float = Query(0.9, description="Seuil de similarité cosinus pour filtrer les articles")):
+
+    """
+    Filtre les articles considérés comme outliers en fonction de leur similarité cosinus 
+    avec leur centroïde de cluster et met à jour les centroïdes.
+    """
+
     print("INFO: Chargement des fichiers de clustering et des centroids...")
     
     clustering_output_file = os.path.join(PROCESSED_DIR_NEWS, "article_vectors_with_clusters.csv")
@@ -395,7 +425,7 @@ def process_outliers(threshold: float = Query(0.9, description="Seuil de similar
 
     if not os.path.exists(clustering_output_file) or not os.path.exists(centroids_output_file):
         print("INFO: Fichiers requis non trouvés.")
-        raise HTTPException(status_code=400, detail="Both vectors with clusters or Centroids files must be uploaded first.")
+        raise HTTPException(status_code=400, detail="Les fichiers des vecteurs et clusters associés, ainsi que le fichier des centroides doivent être chargés")
     
     article_vectors_df = pd.read_csv(clustering_output_file)
     centroids_df = pd.read_csv(centroids_output_file)
@@ -452,7 +482,13 @@ def process_outliers(threshold: float = Query(0.9, description="Seuil de similar
 
 
 
+
 def clusters_without_outliers():
+
+    """
+    Associe les articles filtrés à leurs clusters, applique TF-IDF aux tokens,
+    et génère des fichiers de résultats et des graphiques des termes importants par cluster.
+    """
 
     print("INFO: Chargement des fichiers...")
 
@@ -461,15 +497,13 @@ def clusters_without_outliers():
 
     if not os.path.exists(tokens_output_file) or not os.path.exists(clusters_output_file):
         print("INFO: Fichiers requis non trouvés.")
-        raise HTTPException(status_code=400, detail="Both matrix with tokens or vectors without outliers files must be uploaded first.")
+        raise HTTPException(status_code=400, detail="La matrice avec les tokens ou les vecteurs sans outliers doivent être téléversés en premier.")
     
     tokens_df = pd.read_csv(tokens_output_file)
     clusters_df = pd.read_csv(clusters_output_file)
 
-    # Filtrer les articles restant après suppression des outliers
     tokens_df = tokens_df[tokens_df['Titre'].isin(clusters_df['Titre'])]
 
-    # Fusionner avec les clusters
     merged_df = tokens_df.merge(clusters_df[['Titre', 'Cluster']], on='Titre', how='left')
 
     token_columns = merged_df.columns.difference(['Date', 'Titre', 'Cluster'])
@@ -483,14 +517,12 @@ def clusters_without_outliers():
 
         cluster_df = merged_df[merged_df['Cluster'] == cluster]
 
-        # Appliquer TF-IDF sur les colonnes des tokens
         tfidf_transformer = TfidfTransformer()
         tfidf_matrix = tfidf_transformer.fit_transform(cluster_df[token_columns])
 
         tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=token_columns)
         tfidf_df['Titre'] = cluster_df['Titre']
 
-        # Moyenne des scores TF-IDF
         cluster_mean_tfidf = tfidf_df[token_columns].mean().sort_values(ascending=False)
 
     
@@ -532,15 +564,55 @@ def clusters_without_outliers():
         }
     }
 
-def preprocess_tweets():
 
-    # Charger le fichier des articles
+
+######################################################################
+#                             TWEETS                                 #
+######################################################################
+
+
+
+def preprocess_message_tweets(message):
+        
+        """
+        Nettoie et tokenise un tweet en supprimant les stopwords, les chiffres, 
+        et les répétitions, puis applique la lemmatisation.
+        """
+
+        if not isinstance(message, str): 
+            return []
+
+        stop_words = set(stopwords.words('english'))
+        lemmatizer = WordNetLemmatizer() 
+
+        message = message.lower()
+        message = re.sub(r'\d+', '', message)
+        
+        tokens = word_tokenize(message)
+        filtered_tokens = [word for word in tokens if word.isalnum() and word not in stop_words]
+        
+        lemmatized_tokens = [lemmatizer.lemmatize(word) for word in filtered_tokens]
+        
+        cleaned_tokens = [token for token in lemmatized_tokens if len(token) > 2 and 'btc' not in token and 'bitcoin' not in token]
+        cleaned_tokens = [token for token in cleaned_tokens if not re.search(r'(.)\1{2,}', token)]
+        
+        return cleaned_tokens if cleaned_tokens else None  
+
+
+
+
+def preprocess_tweets():
+    
+    """
+    Nettoie, tokenise et vectorise les tweets en créant une matrice de tokens, 
+    puis filtre les tokens selon un lexique issu des articles de presse.
+    """
+
     tweet_file = "uploaded_data/tweets.csv"
     tweets_df = pd.read_csv(tweet_file)
     tweets_df = tweets_df.drop_duplicates()
     tweets_df["Titre"] = tweets_df["Message"].str.replace("$BTC.X", "", regex=False)
 
-    # Vérifier si les colonnes nécessaires existent
     required_columns = {'Date', 'Message', "Titre"}
     if not required_columns.issubset(tweets_df.columns):
         raise ValueError(f"Le fichier CSV doit contenir les colonnes : {required_columns}.")
@@ -558,11 +630,9 @@ def preprocess_tweets():
     tweets_df.to_csv(output_folder_tweets_processed, index=False)
 
 
-    # Matrice des tokens
     unique_tokens = sorted(set(token for tokens in tweets_df['Processed_Message'] for token in tokens))
     token_matrix = pd.DataFrame(0, index=tweets_df.index, columns=unique_tokens)
 
-    # Remplir la matrice avec 1 si le token apparaît dans l'article
     for i, tokens in enumerate(tweets_df['Processed_Message']):
         token_matrix.loc[tweets_df.index[i], list(set(tokens))] = 1
 
@@ -573,7 +643,6 @@ def preprocess_tweets():
     output_folder_matrix = os.path.join(PROCESSED_DIR_TWEETS,"matrix_tweets.csv")
     final_df.to_csv(output_folder_matrix, index=False)
 
-    # Charger le lexique des news
     lexique_output_file = os.path.join(PROCESSED_DIR_NEWS, "selected_tokens.csv")
     
     news_lexicon = pd.read_csv(lexique_output_file, index_col=0) 
@@ -582,7 +651,6 @@ def preprocess_tweets():
 
     columns_to_keep = ['Date', 'Titre'] + [token for token in final_df.columns if token in news_tokens_list]
 
-    # Filtrer la matrice des tweets pour ne garder que ces tokens
     filtered_matrix_tweets = final_df[columns_to_keep]
 
     folder_filtered_matrix_tweets = os.path.join(PROCESSED_DIR_TWEETS,"matrix_tweets_filtered_by_news_tokens.csv")
@@ -601,26 +669,39 @@ def preprocess_tweets():
 
 
 def process_tweets_vectorization():
+    
+    """
+    Charge la matrice filtrée des tweets et applique le modèle Word2Vec pour générer 
+    leurs représentations vectorielles, puis sauvegarde les résultats.
+    """
 
     print("INFO: Chargement de la matrice filtrée des tweets...")
 
     folder_filtered_matrix_tweets = os.path.join(PROCESSED_DIR_TWEETS, "matrix_tweets_filtered_by_news_tokens.csv")
     if not os.path.exists(folder_filtered_matrix_tweets):
         print("INFO: Fichiers requis non trouvés.")
-        raise HTTPException(status_code=400, detail="Filtered tweets file must be generated first.")
+        raise HTTPException(status_code=400, detail="Le fichier des tweets filtrés doit être généré.")
 
     filtered_matrix_tweets = pd.read_csv(folder_filtered_matrix_tweets)
 
     folder_word2vec_model = os.path.join(PROCESSED_DIR_NEWS, "word2vec_model_news.model")
     if not os.path.exists(folder_word2vec_model):
         print("INFO: Modèle Word2Vec non trouvé.")
-        raise HTTPException(status_code=400, detail="Word2Vec model must be trained first.")
+        raise HTTPException(status_code=400, detail="Le modèle Word2Vec doit être tout d'abord entraîné.")
 
     print("INFO: Chargement du modèle Word2Vec...")
     model = Word2Vec.load(folder_word2vec_model)
 
-    # Fonction pour calculer le vecteur moyen d'un tweet
+
+
+    
     def get_tweet_vector(tweet_tokens):
+
+        """
+        Calcule le vecteur moyen d'un tweet en agrégeant les vecteurs Word2Vec de ses tokens.
+        Retourne un vecteur nul si aucun token valide n'est trouvé.
+        """
+         
         vectors = [model.wv[token] for token in tweet_tokens if token in model.wv]
         return np.mean(vectors, axis=0) if len(vectors) > 0 else np.zeros(model.vector_size)
 
@@ -628,8 +709,8 @@ def process_tweets_vectorization():
 
     tweet_vectors = []
     for _, row in filtered_matrix_tweets.iterrows():
-        tweet_tokens = row[2:].index[row[2:] == 1].tolist()  # Récupérer les tokens du tweet
-        tweet_vector = get_tweet_vector(tweet_tokens)  # Calculer le vecteur moyen
+        tweet_tokens = row[2:].index[row[2:] == 1].tolist()  
+        tweet_vector = get_tweet_vector(tweet_tokens)  
         tweet_vectors.append(tweet_vector)
 
     tweet_vectors_df = pd.DataFrame(tweet_vectors)
@@ -655,6 +736,11 @@ def process_tweets_vectorization():
 
 def tweets_assignment():
 
+    """
+    Assigne les tweets aux clusters les plus similaires en utilisant la similarité cosinus 
+    avec les centroïdes des articles, puis sauvegarde les résultats.
+    """
+
     print("INFO: Chargement des fichiers de vecteurs...")
 
     folder_vectors_tweets = os.path.join(PROCESSED_DIR_TWEETS, "tweet_vectors.csv")
@@ -674,7 +760,6 @@ def tweets_assignment():
     news_vectors_df['Date'] = pd.to_datetime(news_vectors_df['Date'])
 
 
-    # Extraction des vecteurs numériques
     tweet_vectors_only = tweet_vectors_df.iloc[:, :-2].values
     centroid_vectors = centroids_df.iloc[:, :-1].values
 
@@ -682,7 +767,6 @@ def tweets_assignment():
 
     similarity_matrix = cosine_similarity(tweet_vectors_only, centroid_vectors)
 
-    # Assigner les tweets au cluster le plus similaire
     closest_clusters = similarity_matrix.argmax(axis=1)
     max_similarities = similarity_matrix.max(axis=1)
 
@@ -691,7 +775,6 @@ def tweets_assignment():
     tweet_vectors_df['Cluster'] = np.where(max_similarities >= similarity_threshold, closest_clusters, -1)
     tweet_vectors_df['Similarity'] = max_similarities
 
-    # Sélection des tweets réellement assignés
     assigned_tweets_df = tweet_vectors_df[tweet_vectors_df['Cluster'] != -1]
     daily_clustered_tweets = assigned_tweets_df.groupby(['Date', 'Cluster'])['Titre'].apply(list).reset_index()
 
@@ -714,7 +797,14 @@ def tweets_assignment():
     }
 
 
+
+
 def alert_generation():
+    
+    """
+    Analyse le pourcentage de tweets assignés aux clusters par jour, 
+    génère un graphique d'alerte et sauvegarde les résultats.
+    """
 
     print("INFO: Chargement des fichiers de tweets...")
 
@@ -734,16 +824,13 @@ def alert_generation():
 
     print("INFO: Calcul du pourcentage de tweets assignés...")
 
-    # Compter le nombre total de tweets par jour et le nombre de tweets assignés par jour
     total_tweets_per_day = all_tweets_df.groupby('Date').size().reset_index(name='Total_Tweets')
     assigned_tweets_per_day = assigned_tweets_df.groupby('Date').size().reset_index(name='Assigned_Tweets')
 
     association_stats = total_tweets_per_day.merge(assigned_tweets_per_day, on="Date", how="left")
 
-    # Remplacer les NaN 
     association_stats['Assigned_Tweets'].fillna(0, inplace=True)
 
-    # 📌 Calculer le pourcentage qu'on a besoin
     association_stats['Percentage_Assigned'] = (association_stats['Assigned_Tweets'] / association_stats['Total_Tweets']) * 100
 
     print("INFO: Génération du graphique d'alerte...")

@@ -20,11 +20,14 @@ import time
 import logging
 import os
 
-# Configuration du logging pour webscrapping
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
+
+######################################################################
+#                          Données                                   #
+######################################################################
 UPLOAD_DIR = "uploaded_data"
 SCRAPED_TWEETS_DIR = "scraped_tweets"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -45,11 +48,10 @@ async def scrape_stocktwits_endpoint(target_date: str, filename: str = "btc_twee
     Web scraping endpoint avec date format DD/MM/YYYY.
     """
     try:
-        # Convertir la date en objet datetime
+        
         target_date_obj = datetime.strptime(target_date, "%d/%m/%Y")
         logger.info(f"Scraping pour la date {target_date_obj} avec filename {filename}")
 
-        # Exécuter la fonction de scraping
         result = scrape_stocktwits(target_date_obj, filename_prefix=filename.split(".")[0])
         return result
 
@@ -101,7 +103,6 @@ def scrape_stocktwits(target_date: datetime, filename_prefix: str):
                 writer.writerow(tweet)
         logger.info(f"File sauvegardé: {filename}")
 
-    # 📌 Chemin du fichier pour stocker les tweets
     filename = os.path.join(SCRAPED_TWEETS_DIR, f"{filename_prefix}_{target_date.strftime('%Y-%m-%d')}.csv")
 
     all_tweets = []
@@ -193,6 +194,14 @@ def upload_tweets(file: UploadFile = File(...)):
         buffer.write(file.file.read())
     return {"message": f"{file.filename} chargé comme tweets.csv"}
 
+
+
+######################################################################
+#                          Articles                                  #
+######################################################################
+
+
+
 @router.post("/process/news_bitcoin", summary="Traitement des données News et Bitcoin", description="Traite les données de news et de Bitcoin téléchargées afin d'extraire des caractéristiques pertinentes.")
 def process_all():
     return process_news()
@@ -217,6 +226,13 @@ def process_outlier_removal(threshold: float = Query(0.9, description="Seuil de 
 def clusters_no_outliers():
     return clusters_without_outliers()
 
+
+######################################################################
+#                          Tweets                                    #
+######################################################################
+
+
+
 @router.post("/process/tweets", summary="Prétraitement des Tweets", description="Nettoie et tokenize le dataset de Tweets téléchargé.")
 def preprocess_tweets_router():
     return preprocess_tweets()
@@ -232,6 +248,13 @@ def assignment():
 @router.post("/process/alert_generation", summary="Génération d'alertes", description="Génère des alertes en fonction de la proportion de tweets assignés par jour.")
 def generation():
     return alert_generation()
+
+
+######################################################################
+#                          Graphiques                                #
+######################################################################
+
+
 
 @router.get("/images/cluster", summary="Affiche le graphique des mots les plus important de cluster qui détècte notre événement (Trump election)")
 def get_cluster_image():

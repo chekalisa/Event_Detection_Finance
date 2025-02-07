@@ -68,6 +68,11 @@ Cette commande va vous adresser vers le FastAPI avec les endpoins suivants  :
 - /process/tweets_assignment: Assigner les tweets aux clusters en utilisant la similarité cosinus,
 - /process/alert_generation: Générer des alertes en fonction des assignations de tweets
 
+    3.  Accéder à l'application FastAPI :
+        http://localhost:8000
+    
+    4. Utiliser l'interface interactive Swagger UI pour tester l'API :
+        http://localhost:8000/docs
 
 
 ## Auteurs
