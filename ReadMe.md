@@ -77,7 +77,7 @@ Cette commande va vous adresser vers le FastAPI avec les endpoins suivants  :
 ## Information sur le code
 L’endpoint de web scraping peut prendre un temps considérable à s’exécuter. Pour simplifier son utilisation, un dossier contenant tous les tweets déjà webscrapés est mis à disposition.
 
-Pour charger les données, utilisez les endpoints "/upload/news", "/upload/bitcoin" et "/upload/tweets", disponibles dans le dossier /data. Ensuite, exécutez chaque endpoint successivement.
+Pour charger les données, utilisez les endpoints "/upload/news", "/upload/bitcoin" et "/upload/tweets". Les données sont disponibles dans le dossier /data. Ensuite, exécutez chaque endpoint successivement.
 
 À la fin, vous pourrez accéder aux deux endpoints finaux qui affichent les graphiques des résultats essentiels.
 
