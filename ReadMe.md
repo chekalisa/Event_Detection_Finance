@@ -47,7 +47,7 @@ Pour exécuter le FastAPI, deux possibilités :
     
     2. Lancer l'image Docker :
         ```bash
-        docker run -d -p 8000:8000 --name mon_conteneur fastapi-app
+        docker run -p 8000:8000 fastapi-app
         ```
 
 

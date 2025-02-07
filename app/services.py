@@ -20,10 +20,10 @@ import matplotlib.dates as mdates
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Download NLTK resources
-nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('stopwords')
 nltk.download('wordnet')
-
+nltk.download('punkt')
 
 
 PROCESSED_DIR_NEWS = "processed_data_news"
